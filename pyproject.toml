@@ -1,0 +1,20 @@
+[project]
+name = "tech-challenge4"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "librosa>=1.0.0",
+    "openai>=3.25.0",
+    "openai-whisper>=20250625",
+    "pandas>=3.0.6",
+    "python-dotenv>=1.2.4",
+]
+
+[project.scripts]
+tech-challenge4 = "tech_challenge4:main"
+
+[build-system]
+requires = ["uv_build>=0.12.10,<0.13.0"]
+build-backend = "uv_build"
