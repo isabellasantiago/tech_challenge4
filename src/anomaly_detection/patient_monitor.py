@@ -16,17 +16,30 @@ from datetime import datetime
 from typing import Optional, Protocol, Any
 from enum import Enum
 
-from .vital_signs_detector import (
-    VitalSignsAnomalyDetector,
-    VitalSignsReading,
-    AnomalyResult,
-)
-from .prescription_analyzer import (
-    PrescriptionAnalyzer,
-    Prescription,
-    PrescriptionAlert,
-)
-from .alert_system import AlertSystem, AlertSource, MedicalAlert
+try:
+    from .vital_signs_detector import (
+        VitalSignsAnomalyDetector,
+        VitalSignsReading,
+        AnomalyResult,
+    )
+    from .prescription_analyzer import (
+        PrescriptionAnalyzer,
+        Prescription,
+        PrescriptionAlert,
+    )
+    from .alert_system import AlertSystem, AlertSource, MedicalAlert
+except ImportError:
+    from vital_signs_detector import (
+        VitalSignsAnomalyDetector,
+        VitalSignsReading,
+        AnomalyResult,
+    )
+    from prescription_analyzer import (
+        PrescriptionAnalyzer,
+        Prescription,
+        PrescriptionAlert,
+    )
+    from alert_system import AlertSystem, AlertSource, MedicalAlert
 
 
 class PatientRiskLevel(Enum):
