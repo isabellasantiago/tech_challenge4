@@ -1,11 +1,12 @@
 [project]
 name = "tech-challenge4"
 version = "0.1.0"
-description = "Add your description here"
+description = "Sistema multimodal de monitoramento de pacientes com detecção de anomalias"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
     "librosa>=1.0.0",
+    "numpy>=2.0.0",
     "openai>=3.25.0",
     "openai-whisper>=20250625",
     "pandas>=3.0.6",
@@ -14,6 +15,7 @@ dependencies = [
 
 [project.scripts]
 tech-challenge4 = "tech_challenge4:main"
+anomaly-detection = "anomaly_detection.main:main"
 
 [build-system]
 requires = ["uv_build>=0.12.10,<0.13.0"]
