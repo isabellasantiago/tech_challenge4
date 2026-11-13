@@ -11,41 +11,21 @@ Fornece visão unificada do estado do paciente e gera alertas consolidados.
 """
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 from dataclasses import asdict
 from .video_integration import VideoAnalyzerProtocol, VideoAnalysisResult
 from enum import Enum
 
-try:
-    from .vital_signs_detector import (
-        VitalSignsAnomalyDetector,
-        VitalSignsReading,
-        AnomalyResult,
-    )
-    from .prescription_analyzer import (
-        PrescriptionAnalyzer,
-        Prescription,
-        PrescriptionAlert,
-    )
-    from .alert_system import AlertSystem, AlertSource, MedicalAlert
-except ImportError:
-    from vital_signs_detector import (
-        VitalSignsAnomalyDetector,
-        VitalSignsReading,
-        AnomalyResult,
-    )
-    from prescription_analyzer import (
-        PrescriptionAnalyzer,
-        Prescription,
-        PrescriptionAlert,
-    )
-    from alert_system import AlertSystem, AlertSource, MedicalAlert
+from .vital_signs_detector import VitalSignsAnomalyDetector, VitalSignsReading
+from .prescription_analyzer import PrescriptionAnalyzer, Prescription
+from .alert_system import AlertSystem, AlertSource, MedicalAlert, AlertStatus
 
 
 class PatientRiskLevel(Enum):
     """Nível de risco geral do paciente."""
+    INDETERMINATE = "INDETERMINADO"
     STABLE = "ESTAVEL"
     ATTENTION = "ATENCAO"
     WARNING = "ALERTA"
@@ -72,7 +52,7 @@ class PatientMonitor:
     Monitor central de pacientes.
 
     Orquestra a análise de múltiplas fontes de dados e consolida
-    o estado de saúde do paciente em tempo real.
+    o estado de saúde do paciente por execução.
     """
 
     def __init__(
@@ -100,15 +80,38 @@ class PatientMonitor:
 
     def _determine_risk_level(self, patient_id: str) -> PatientRiskLevel:
         """Determina nível de risco baseado nos alertas ativos."""
-        summary = self.alert_system.get_patient_summary(patient_id)
-
-        if summary.critical_count > 0:
+        alerts = [a for a in self.alert_system.get_patient_alerts(patient_id)
+                  if not a.simulated and a.status not in {AlertStatus.RESOLVED, AlertStatus.DISMISSED}]
+        priority = min((a.priority.value for a in alerts), default=None)
+        if priority == 1:
             return PatientRiskLevel.CRITICAL
-        elif summary.high_count > 0:
+        if priority == 2:
             return PatientRiskLevel.WARNING
-        elif summary.medium_count > 0:
+        if priority in {3, 4}:
             return PatientRiskLevel.ATTENTION
+        if not alerts and not self.evaluation_complete(patient_id):
+            return PatientRiskLevel.INDETERMINATE
         return PatientRiskLevel.STABLE
+
+    def modality_states(self, patient_id: str) -> dict:
+        states = {}
+        for source in ("audio_analysis", "video_analysis", "vital_signs", "prescription"):
+            entries = [item["data"] for item in self.get_patient_history(patient_id, source)]
+            statuses = [item.get("status", "CONCLUIDA") for item in entries]
+            if not statuses:
+                states[source] = "NAO_INTEGRADO" if source == "video_analysis" else "AUSENTE"
+            elif "FALHA" in statuses:
+                states[source] = "FALHA"
+            elif "PARCIAL" in statuses:
+                states[source] = "PARCIAL"
+            elif source == "prescription" and len(entries) < 2:
+                states[source] = "PARCIAL"
+            else:
+                states[source] = statuses[-1]
+        return states
+
+    def evaluation_complete(self, patient_id: str) -> bool:
+        return all(value == "CONCLUIDA" for value in self.modality_states(patient_id).values())
 
     def process_vital_signs(
         self, patient_id: str, reading: VitalSignsReading
@@ -138,6 +141,7 @@ class PatientMonitor:
                         "current_value": anomaly.current_value,
                         "expected_range": anomaly.expected_range,
                         "z_score": anomaly.z_score,
+                        "timestamp": reading.timestamp.isoformat(),
                     },
                 )
                 if alert:
@@ -149,15 +153,11 @@ class PatientMonitor:
             "vital_signs",
             {
                 "timestamp": reading.timestamp.isoformat(),
+                "status": "PARCIAL" if self.vital_signs_detector.last_data_errors else "CONCLUIDA",
+                "data_errors": list(self.vital_signs_detector.last_data_errors),
+                "results": [{**asdict(a), "severity": a.severity.value} for a in anomalies],
                 "anomalies_detected": len([a for a in anomalies if a.is_anomaly]),
-                "readings": {
-                    "heart_rate": reading.heart_rate,
-                    "systolic_bp": reading.systolic_bp,
-                    "diastolic_bp": reading.diastolic_bp,
-                    "spo2": reading.spo2,
-                    "temperature": reading.temperature,
-                    "respiratory_rate": reading.respiratory_rate,
-                },
+                "readings": {a.metric_name: a.current_value for a in anomalies},
             },
         )
 
@@ -189,7 +189,9 @@ class PatientMonitor:
                     "severity": p_alert.severity.value,
                     "medication_name": p_alert.medication_name,
                     "recommendation": p_alert.recommendation,
-                    "details": p_alert.details,
+                    "details": {**p_alert.details, "prescription_id": prescription.prescription_id,
+                                "timestamp": prescription.timestamp.isoformat(),
+                                "rule": "regras locais demonstrativas"},
                 },
             )
             alerts.append(alert)
@@ -200,6 +202,8 @@ class PatientMonitor:
             "prescription",
             {
                 "timestamp": prescription.timestamp.isoformat(),
+                "status": "CONCLUIDA",
+                "prescription": json.loads(json.dumps(asdict(prescription), default=str)),
                 "prescription_id": prescription.prescription_id,
                 "medications_count": len(prescription.medications),
                 "alerts_generated": len(prescription_alerts),
@@ -209,7 +213,7 @@ class PatientMonitor:
         return alerts
 
     def process_audio_analysis(
-        self, patient_id: str, audio_result: dict
+        self, patient_id: str, audio_result: dict, evidence: Optional[dict] = None
     ) -> Optional[MedicalAlert]:
         """
         Processa resultado de análise de áudio do módulo existente.
@@ -226,19 +230,12 @@ class PatientMonitor:
             audio_result=audio_result,
         )
 
-        # Registra no histórico
-        self._add_to_history(
-            patient_id,
-            "audio_analysis",
-            {
-                "timestamp": datetime.now().isoformat(),
-                "text_risk_level": audio_result.get("text_risk_level"),
-                "overall_risk": audio_result.get("multimodal_risk_assessment", {}).get(
-                    "overall_risk"
-                ),
-                "alert_generated": alert is not None,
-            },
-        )
+        self._add_to_history(patient_id, "audio_analysis", {
+            "timestamp": datetime.now().isoformat(),
+            "status": "SIMULADA" if audio_result.get("simulated") else "CONCLUIDA",
+            "clinical_assessment": audio_result,
+            **(evidence or {}),
+        })
 
         return alert
 
@@ -292,6 +289,10 @@ class PatientMonitor:
                 ))
         return alerts
 
+    def record_modality_result(self, patient_id: str, source: str, data: dict):
+        """Registra resultados, falhas e evidências de uma modalidade."""
+        self._add_to_history(patient_id, source, data)
+
     def _add_to_history(self, patient_id: str, source: str, data: dict):
         """Adiciona entrada ao histórico de análises."""
         if patient_id not in self._analysis_history:
@@ -301,10 +302,6 @@ class PatientMonitor:
             "source": source,
             "data": data,
         })
-
-        # Limita histórico a 1000 entradas por paciente
-        if len(self._analysis_history[patient_id]) > 1000:
-            self._analysis_history[patient_id] = self._analysis_history[patient_id][-1000:]
 
     def get_patient_status(self, patient_id: str) -> PatientStatus:
         """
@@ -319,38 +316,21 @@ class PatientMonitor:
         risk_level = self._determine_risk_level(patient_id)
         alert_summary = self.alert_system.get_patient_summary(patient_id)
 
-        # Determina status de cada componente
-        vital_signs_alerts = self.alert_system.get_patient_alerts(
-            patient_id, source_filter=[AlertSource.VITAL_SIGNS]
-        )
-        prescription_alerts = self.alert_system.get_patient_alerts(
-            patient_id, source_filter=[AlertSource.PRESCRIPTION]
-        )
-        audio_alerts = self.alert_system.get_patient_alerts(
-            patient_id, source_filter=[AlertSource.AUDIO_ANALYSIS]
-        )
-
-        vs_status = "OK" if not vital_signs_alerts else f"{len(vital_signs_alerts)} alertas"
-        rx_status = "OK" if not prescription_alerts else f"{len(prescription_alerts)} alertas"
-        audio_status = "OK" if not audio_alerts else f"{len(audio_alerts)} alertas"
+        states = self.modality_states(patient_id)
 
         # Gera resumo
-        summary_parts = []
-        if alert_summary.critical_count > 0:
-            summary_parts.append(f"{alert_summary.critical_count} alerta(s) CRÍTICO(S)")
-        if alert_summary.high_count > 0:
-            summary_parts.append(f"{alert_summary.high_count} alerta(s) de alta prioridade")
-        if not summary_parts:
-            summary_parts.append("Paciente estável, sem alertas críticos")
+        summary_parts = [f"Risco real: {risk_level.value}"]
+        if not self.evaluation_complete(patient_id):
+            summary_parts.append("Avaliação incompleta")
 
         status = PatientStatus(
             patient_id=patient_id,
             risk_level=risk_level,
             last_update=datetime.now(),
-            vital_signs_status=vs_status,
-            prescription_status=rx_status,
-            audio_analysis_status=audio_status,
-            video_analysis_status="Não integrado" if self.video_analyzer is None else "OK",
+            vital_signs_status=states["vital_signs"],
+            prescription_status=states["prescription"],
+            audio_analysis_status=states["audio_analysis"],
+            video_analysis_status=states["video_analysis"],
             active_alerts_count=alert_summary.unresolved_count,
             critical_alerts_count=alert_summary.critical_count,
             summary="; ".join(summary_parts),
@@ -398,9 +378,34 @@ class PatientMonitor:
         prescription_report = self.prescription_analyzer.generate_report(patient_id)
         history = self.get_patient_history(patient_id)
 
+        complete = self.evaluation_complete(patient_id)
+        output_errors = [h["data"] for h in history if h["source"] == "output"]
+        findings = {
+            name: [h["data"] for h in history if h["source"] == source]
+            for name, source in {"audio": "audio_analysis", "video": "video_analysis",
+                                 "vital_signs": "vital_signs", "prescriptions": "prescription"}.items()
+        }
+        limitations = [
+            "Protótipo acadêmico: resultados de apoio, sem diagnóstico autônomo.",
+            "Console e JSONL locais; nenhuma notificação entregue à equipe médica.",
+            "Dados de modalidades diferentes associados a um paciente fictício.",
+            "Sinais vitais e prescrições sintéticos; regras farmacológicas limitadas.",
+            "Transcrição fornecida pelo DAIC-WOZ; sem transcrição automática ou streaming.",
+        ]
+        for name, state in self.modality_states(patient_id).items():
+            if state != "CONCLUIDA":
+                limitations.append(f"{name}: {state}")
+        if output_errors:
+            limitations.append("Falha operacional ao gravar saídas locais.")
         return {
             "patient_id": patient_id,
             "report_timestamp": datetime.now().isoformat(),
+            "execution_status": "COMPLETA" if complete and not output_errors else "PARCIAL",
+            "evaluation_complete": complete,
+            "findings": findings,
+            "limitations": limitations,
+            "output_errors": output_errors,
+            "alerts": [a.to_dict() for a in self.alert_system.get_patient_alerts(patient_id)],
             "current_status": {
                 "risk_level": status.risk_level.value,
                 "vital_signs": status.vital_signs_status,
@@ -409,7 +414,7 @@ class PatientMonitor:
                 "video_analysis": status.video_analysis_status,
                 "summary": status.summary,
             },
-            "alerts": {
+            "alert_summary": {
                 "total": alert_summary.total_alerts,
                 "critical": alert_summary.critical_count,
                 "high": alert_summary.high_count,
