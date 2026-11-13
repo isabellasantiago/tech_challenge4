@@ -216,6 +216,8 @@ class AlertSystem:
                 "value": anomaly_result.get("current_value"),
                 "expected_range": anomaly_result.get("expected_range"),
                 "z_score": anomaly_result.get("z_score"),
+                "timestamp": anomaly_result.get("timestamp"),
+                "rule": "limiares estáticos e Z-score",
             },
         )
 
@@ -251,6 +253,7 @@ class AlertSystem:
             patient_id=patient_id,
             source=AlertSource.AUDIO_ANALYSIS,
             title="Alerta de análise vocal",
+            simulated=audio_result.get("simulated", False),
             message=audio_result.get("multimodal_risk_assessment", {}).get(
                 "justification", ""
             ),

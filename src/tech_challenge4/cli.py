@@ -9,7 +9,7 @@ from pathlib import Path
 from anomaly_detection.patient_monitor import PatientMonitor
 from anomaly_detection.vital_signs_detector import VitalSignsReading
 from anomaly_detection.video_integration import VideoAnalyzerStub, VideoFunctionAdapter
-from .demo_inputs import demo_prescriptions
+from .modalities import process_audio, process_vitals, process_prescriptions
 
 DEFAULT_VITALS = Path(__file__).parents[1] / "anomaly_detection/data/sinais_vitais_demo.csv"
 
@@ -18,6 +18,7 @@ def parser():
     command = argparse.ArgumentParser(description=__doc__)
     command.add_argument("--patient-id", required=True)
     command.add_argument("--audio-dir", required=True, type=Path)
+    command.add_argument("--openai-stub", action="store_true", help="simular somente resposta OpenAI")
     command.add_argument("--video", type=Path)
     video = command.add_mutually_exclusive_group()
     video.add_argument("--video-analyzer", metavar="modulo:funcao")
@@ -44,20 +45,15 @@ def main(argv=None):
         try:
             monitor.video_analyzer = VideoFunctionAdapter.load(args.video_analyzer)
         except Exception as exc:
-            monitor._add_to_history(args.patient_id, "video_analysis", {
+            monitor.record_modality_result(args.patient_id, "video_analysis", {
                 "status": "FALHA", "error": str(exc),
             })
     monitor.alert_system.register_callback(lambda alert: print(
         f"[{alert.priority.name}] {alert.patient_id} simulated={alert.simulated}: {alert.message}"
     ))
-    with args.vitals_csv.open(newline="") as stream:
-        for row in csv.DictReader(stream):
-            monitor.process_vital_signs(args.patient_id, VitalSignsReading(
-                timestamp=datetime.fromisoformat(row.pop("timestamp")),
-                **{key: float(value) for key, value in row.items()},
-            ))
-    for prescription in demo_prescriptions(args.patient_id):
-        monitor.process_prescription(prescription)
+    process_audio(monitor, args)
+    process_vitals(monitor, args)
+    process_prescriptions(monitor, args)
     if not args.video_analyzer or monitor.video_analyzer is not None:
         monitor.process_video_analysis(args.patient_id, str(args.video or "stub"))
     try:

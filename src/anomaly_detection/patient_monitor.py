@@ -138,6 +138,7 @@ class PatientMonitor:
                         "current_value": anomaly.current_value,
                         "expected_range": anomaly.expected_range,
                         "z_score": anomaly.z_score,
+                        "timestamp": reading.timestamp.isoformat(),
                     },
                 )
                 if alert:
@@ -149,15 +150,11 @@ class PatientMonitor:
             "vital_signs",
             {
                 "timestamp": reading.timestamp.isoformat(),
+                "status": "PARCIAL" if self.vital_signs_detector.last_data_errors else "CONCLUIDA",
+                "data_errors": list(self.vital_signs_detector.last_data_errors),
+                "results": [{**asdict(a), "severity": a.severity.value} for a in anomalies],
                 "anomalies_detected": len([a for a in anomalies if a.is_anomaly]),
-                "readings": {
-                    "heart_rate": reading.heart_rate,
-                    "systolic_bp": reading.systolic_bp,
-                    "diastolic_bp": reading.diastolic_bp,
-                    "spo2": reading.spo2,
-                    "temperature": reading.temperature,
-                    "respiratory_rate": reading.respiratory_rate,
-                },
+                "readings": {a.metric_name: a.current_value for a in anomalies},
             },
         )
 
@@ -200,6 +197,8 @@ class PatientMonitor:
             "prescription",
             {
                 "timestamp": prescription.timestamp.isoformat(),
+                "status": "CONCLUIDA",
+                "prescription": json.loads(json.dumps(asdict(prescription), default=str)),
                 "prescription_id": prescription.prescription_id,
                 "medications_count": len(prescription.medications),
                 "alerts_generated": len(prescription_alerts),
@@ -226,19 +225,11 @@ class PatientMonitor:
             audio_result=audio_result,
         )
 
-        # Registra no histórico
-        self._add_to_history(
-            patient_id,
-            "audio_analysis",
-            {
-                "timestamp": datetime.now().isoformat(),
-                "text_risk_level": audio_result.get("text_risk_level"),
-                "overall_risk": audio_result.get("multimodal_risk_assessment", {}).get(
-                    "overall_risk"
-                ),
-                "alert_generated": alert is not None,
-            },
-        )
+        self._add_to_history(patient_id, "audio_analysis", {
+            "timestamp": datetime.now().isoformat(),
+            "status": "SIMULADA" if audio_result.get("simulated") else "CONCLUIDA",
+            "clinical_assessment": audio_result,
+        })
 
         return alert
 
@@ -291,6 +282,10 @@ class PatientMonitor:
                     simulated=result.status == "SIMULADA",
                 ))
         return alerts
+
+    def record_modality_result(self, patient_id: str, source: str, data: dict):
+        """Registra resultados, falhas e evidências de uma modalidade."""
+        self._add_to_history(patient_id, source, data)
 
     def _add_to_history(self, patient_id: str, source: str, data: dict):
         """Adiciona entrada ao histórico de análises."""
