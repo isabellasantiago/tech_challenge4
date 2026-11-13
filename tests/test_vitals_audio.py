@@ -7,6 +7,16 @@ from tech_challenge4.demo_inputs import demo_prescriptions
 
 
 class ModalitiesTests(unittest.TestCase):
+    def test_diastolic_thresholds_are_preserved(self):
+        detector = VitalSignsAnomalyDetector()
+        for value, severity in ((90, "NORMAL"), (95, "MEDIO"),
+                                (100, "ALTO"), (110, "ALTO"), (120, "CRITICO")):
+            detector.reset_history()
+            result = detector.analyze_reading(
+                VitalSignsReading(datetime.now(), diastolic_bp=value)
+            )[0]
+            self.assertEqual(result.severity.value, severity)
+
     def test_spo2_100_is_normal(self):
         result = VitalSignsAnomalyDetector().analyze_reading(VitalSignsReading(datetime.now(), spo2=100))
         self.assertFalse(result[0].is_anomaly)

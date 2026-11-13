@@ -14,10 +14,7 @@ def process_audio(monitor, args):
         except AudioPipelineError as exc:
             evidence = exc.acoustic_result
             raise
-        monitor.process_audio_analysis(args.patient_id, result["clinical_assessment"])
-        monitor.record_modality_result(args.patient_id, "audio_analysis", {
-            "status": "SIMULADA" if result["simulated"] else "CONCLUIDA", **result,
-        })
+        monitor.process_audio_analysis(args.patient_id, result["clinical_assessment"], evidence=result)
     except Exception as exc:
         monitor.record_modality_result(args.patient_id, "audio_analysis", {
             "status": "FALHA", "error": str(exc), "acoustic_result": evidence,

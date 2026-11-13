@@ -79,7 +79,7 @@ CLINICAL_THRESHOLDS = {
         "low": 50,
         "normal_low": 60,
         "normal_high": 90,
-        "high": float("inf"),
+        "high": 100,
         "critical_high": 120,
     },
     "spo2": {
