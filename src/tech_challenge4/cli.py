@@ -64,5 +64,6 @@ def main(argv=None):
     except (OSError, ValueError, TypeError) as exc:
         print(f"Erro ao gravar relatório: {exc}", file=sys.stderr)
         return 1
-    print(f"Relatório: {args.report}")
+    if not any(error.get("output") == "console" for error in sink.errors):
+        print(f"Relatório: {args.report}")
     return 1 if sink.errors else 0

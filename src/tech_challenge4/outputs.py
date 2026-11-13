@@ -14,10 +14,14 @@ class LocalAlertSink:
             self.errors.append({"path": str(path), "error": str(exc)})
 
     def __call__(self, alert):
-        print(json.dumps(alert.to_dict(), ensure_ascii=False, allow_nan=False))
+        payload = json.dumps(alert.to_dict(), ensure_ascii=False, allow_nan=False)
+        try:
+            print(payload, flush=True)
+        except (OSError, UnicodeError) as exc:
+            self.errors.append({"output": "console", "error": str(exc)})
         if self.stream is not None:
             try:
-                self.stream.write(json.dumps(alert.to_dict(), ensure_ascii=False, allow_nan=False) + "\n")
+                self.stream.write(payload + "\n")
                 self.stream.flush()
             except (OSError, ValueError, TypeError) as exc:
                 self.errors.append({"output": "alerts", "error": str(exc)})
@@ -29,4 +33,9 @@ class LocalAlertSink:
             except OSError as exc:
                 self.errors.append({"output": "alerts", "error": str(exc)})
         for error in self.errors:
-            print(f"Erro ao gravar JSONL: {error['error']}", file=sys.stderr)
+            try:
+                print(f"Erro na saída {error.get('output', 'alerts')}: {error['error']}",
+                      file=sys.stderr, flush=True)
+            except (OSError, UnicodeError):
+                # Preserva os erros para o relatório mesmo se stderr também falhar.
+                pass

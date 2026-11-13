@@ -94,8 +94,10 @@ clínicas sintéticas geram alertas não simulados; as entradas continuam explic
 identificadas como sintéticas nas limitações.
 
 - Código **0**: processamento e saídas concluídos, inclusive relatório parcial.
-- Código **1**: falha operacional ao gravar relatório ou JSONL, informada no stderr.
-  Uma falha no JSONL permite continuar o processamento e salvar o relatório parcial.
+- Código **1**: falha operacional ao gravar relatório, JSONL ou emitir alertas no console,
+  informada no stderr quando disponível. Uma falha no console não impede a gravação
+  do JSONL. Erros dessas saídas são preservados no relatório parcial, mesmo se o
+  próprio stderr falhar.
 - Código **2**: argumentos inválidos.
 
 Sem chave ou com erro da OpenAI, as métricas já extraídas são preservadas, o áudio

@@ -106,6 +106,43 @@ class PipelineTests(unittest.TestCase):
         real_stream.close()
         self.assertEqual(len(sink.errors), 2)
 
+    def test_console_errors_do_not_prevent_jsonl_persistence(self):
+        from tech_challenge4.outputs import LocalAlertSink
+        failures = [BrokenPipeError("stdout fechado"),
+                    UnicodeEncodeError("ascii", "á", 0, 1, "não representável")]
+        for index, error in enumerate(failures):
+            with self.subTest(error=type(error).__name__):
+                path = self.root / f"console-{index}.jsonl"
+                sink = LocalAlertSink(path)
+                alerts = AlertSystem()
+                alerts.register_callback(sink)
+                with patch("tech_challenge4.outputs.print", side_effect=error, create=True):
+                    alert = alerts.create_alert("P", AlertSource.MANUAL, "teste", "evidência")
+                    sink.close()
+                stored = [json.loads(line) for line in path.read_text().splitlines()]
+                self.assertEqual(stored, [alert.to_dict()])
+                self.assertEqual(sink.errors, [{"output": "console", "error": str(error)}])
+
+    def test_permanent_stdout_failure_preserves_outputs_and_returns_nonzero(self):
+        class BrokenConsole(io.StringIO):
+            def write(self, text):
+                raise BrokenPipeError("stdout fechado")
+
+        args = ["--patient-id", "P", "--audio-dir", str(self.root),
+                "--report", str(self.report), "--alerts", str(self.alerts),
+                "--openai-stub", "--video-stub"]
+        with patch("audio_analisys.main.AudioAnalyzer.analyze_participant_folder", return_value=ACOUSTICS), \
+                contextlib.redirect_stdout(BrokenConsole()), contextlib.redirect_stderr(io.StringIO()):
+            result = main(args)
+        self.assertEqual(result, 1)
+        report = json.loads(self.report.read_text())
+        lines = [json.loads(line) for line in self.alerts.read_text().splitlines()]
+        self.assertEqual(len(report["alerts"]), 11)
+        self.assertEqual({a["id"]: a for a in lines}, {a["id"]: a for a in report["alerts"]})
+        self.assertEqual(report["execution_status"], "PARCIAL")
+        self.assertTrue(report["output_errors"])
+        self.assertTrue(all(error["output"] == "console" for error in report["output_errors"]))
+
     def test_report_failure_is_nonzero(self):
         self.report.mkdir()
         self.assertEqual(self.run_cli(), 1)
