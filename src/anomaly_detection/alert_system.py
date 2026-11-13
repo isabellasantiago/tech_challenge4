@@ -64,6 +64,7 @@ class MedicalAlert:
     timestamp: datetime = field(default_factory=datetime.now)
     status: AlertStatus = AlertStatus.NEW
     details: dict = field(default_factory=dict)
+    simulated: bool = False
     acknowledged_by: Optional[str] = None
     acknowledged_at: Optional[datetime] = None
     resolved_by: Optional[str] = None
@@ -145,6 +146,7 @@ class AlertSystem:
         priority: Optional[AlertPriority] = None,
         severity: Optional[str] = None,
         details: Optional[dict] = None,
+        simulated: bool = False,
     ) -> MedicalAlert:
         """
         Cria um novo alerta médico.
@@ -174,6 +176,7 @@ class AlertSystem:
             title=title,
             message=message,
             details=details or {},
+            simulated=simulated,
         )
 
         with self._lock:
@@ -427,6 +430,7 @@ class AlertSystem:
                     "status": a.status.value,
                     "timestamp": a.timestamp.isoformat(),
                     "details": a.details,
+                    "simulated": a.simulated,
                 }
                 for a in alerts
             ],

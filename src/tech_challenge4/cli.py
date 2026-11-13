@@ -8,6 +8,7 @@ from pathlib import Path
 
 from anomaly_detection.patient_monitor import PatientMonitor
 from anomaly_detection.vital_signs_detector import VitalSignsReading
+from anomaly_detection.video_integration import VideoAnalyzerStub, VideoFunctionAdapter
 from .demo_inputs import demo_prescriptions
 
 DEFAULT_VITALS = Path(__file__).parents[1] / "anomaly_detection/data/sinais_vitais_demo.csv"
@@ -37,8 +38,17 @@ def main(argv=None):
     if args.report.resolve() == args.alerts.resolve():
         command.error("relatório e JSONL devem ter caminhos diferentes")
     monitor = PatientMonitor()
+    if args.video_stub:
+        monitor.video_analyzer = VideoAnalyzerStub()
+    elif args.video_analyzer:
+        try:
+            monitor.video_analyzer = VideoFunctionAdapter.load(args.video_analyzer)
+        except Exception as exc:
+            monitor._add_to_history(args.patient_id, "video_analysis", {
+                "status": "FALHA", "error": str(exc),
+            })
     monitor.alert_system.register_callback(lambda alert: print(
-        f"[{alert.priority.name}] {alert.patient_id}: {alert.message}"
+        f"[{alert.priority.name}] {alert.patient_id} simulated={alert.simulated}: {alert.message}"
     ))
     with args.vitals_csv.open(newline="") as stream:
         for row in csv.DictReader(stream):
@@ -48,7 +58,8 @@ def main(argv=None):
             ))
     for prescription in demo_prescriptions(args.patient_id):
         monitor.process_prescription(prescription)
-    monitor.process_video_analysis(args.patient_id, str(args.video or "stub"))
+    if not args.video_analyzer or monitor.video_analyzer is not None:
+        monitor.process_video_analysis(args.patient_id, str(args.video or "stub"))
     try:
         args.alerts.parent.mkdir(parents=True, exist_ok=True)
         with args.alerts.open("a") as stream:

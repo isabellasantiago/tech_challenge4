@@ -13,7 +13,9 @@ Fornece visão unificada do estado do paciente e gera alertas consolidados.
 import json
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional, Protocol, Any
+from typing import Optional
+from dataclasses import asdict
+from .video_integration import VideoAnalyzerProtocol, VideoAnalysisResult
 from enum import Enum
 
 try:
@@ -63,24 +65,6 @@ class PatientStatus:
     active_alerts_count: int = 0
     critical_alerts_count: int = 0
     summary: str = ""
-
-
-class VideoAnalyzerProtocol(Protocol):
-    """
-    Protocolo/Interface para integração com módulo de análise de vídeo.
-
-    Quem implementar análise de vídeo deve seguir esta interface:
-    - analyze_video(video_path) -> dict com resultados
-    - detect_movement_anomalies(frames) -> list de anomalias
-    """
-
-    def analyze_video(self, video_path: str) -> dict:
-        """Analisa vídeo e retorna resultados."""
-        ...
-
-    def detect_movement_anomalies(self, patient_id: str, frames: Any) -> list[dict]:
-        """Detecta anomalias de movimentação."""
-        ...
 
 
 class PatientMonitor:
@@ -274,25 +258,39 @@ class PatientMonitor:
         Returns:
             Lista de alertas gerados
         """
+        if not patient_id.strip() or not video_path.strip():
+            raise ValueError("patient_id e video_path devem ser não vazios")
         if self.video_analyzer is None:
-            # Registra que vídeo não foi processado por falta de integração
-            self._add_to_history(
-                patient_id,
-                "video_analysis",
-                {
-                    "timestamp": datetime.now().isoformat(),
-                    "status": "NOT_INTEGRATED",
-                    "message": "Módulo de análise de vídeo não integrado",
-                },
-            )
+            self._add_to_history(patient_id, "video_analysis", {
+                "status": "NAO_INTEGRADO", "summary": "Módulo de vídeo não integrado",
+            })
             return []
-
-        # Quando o módulo de vídeo for integrado, usar:
-        # results = self.video_analyzer.analyze_video(video_path)
-        # anomalies = self.video_analyzer.detect_movement_anomalies(patient_id, results)
-
-        # Por enquanto, retorna lista vazia
-        return []
+        try:
+            result = self.video_analyzer.analyze_video(video_path)
+            if not isinstance(result, VideoAnalysisResult):
+                raise ValueError("analisador interno deve retornar VideoAnalysisResult")
+            result = VideoAnalysisResult.from_dict({
+                key: value for key, value in asdict(result).items() if value is not None
+            })
+        except Exception as exc:
+            self._add_to_history(patient_id, "video_analysis", {
+                "status": "FALHA", "error": str(exc), "video_path": video_path,
+            })
+            return []
+        data = asdict(result)
+        data.update(video_path=video_path, timestamp=datetime.now().isoformat())
+        self._add_to_history(patient_id, "video_analysis", data)
+        alerts = []
+        if result.status in {"CONCLUIDA", "SIMULADA"}:
+            for finding in result.findings:
+                alerts.append(self.alert_system.create_alert(
+                    patient_id, AlertSource.VIDEO_ANALYSIS,
+                    title=finding["type"], message=finding["description"],
+                    severity=finding["severity"],
+                    details={**finding, "video_path": video_path},
+                    simulated=result.status == "SIMULADA",
+                ))
+        return alerts
 
     def _add_to_history(self, patient_id: str, source: str, data: dict):
         """Adiciona entrada ao histórico de análises."""
