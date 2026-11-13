@@ -1,14 +1,13 @@
 """Um paciente fictício por execução; saídas locais de demonstração."""
 import argparse
-import csv
 import json
 import sys
-from datetime import datetime
 from pathlib import Path
 
 from anomaly_detection.patient_monitor import PatientMonitor
-from anomaly_detection.vital_signs_detector import VitalSignsReading
-from .demo_inputs import demo_prescriptions
+from anomaly_detection.video_integration import VideoAnalyzerStub, VideoFunctionAdapter
+from .outputs import LocalAlertSink
+from .modalities import process_audio, process_vitals, process_prescriptions
 
 DEFAULT_VITALS = Path(__file__).parents[1] / "anomaly_detection/data/sinais_vitais_demo.csv"
 
@@ -17,6 +16,7 @@ def parser():
     command = argparse.ArgumentParser(description=__doc__)
     command.add_argument("--patient-id", required=True)
     command.add_argument("--audio-dir", required=True, type=Path)
+    command.add_argument("--openai-stub", action="store_true", help="simular somente resposta OpenAI")
     command.add_argument("--video", type=Path)
     video = command.add_mutually_exclusive_group()
     video.add_argument("--video-analyzer", metavar="modulo:funcao")
@@ -37,27 +37,33 @@ def main(argv=None):
     if args.report.resolve() == args.alerts.resolve():
         command.error("relatório e JSONL devem ter caminhos diferentes")
     monitor = PatientMonitor()
-    monitor.alert_system.register_callback(lambda alert: print(
-        f"[{alert.priority.name}] {alert.patient_id}: {alert.message}"
-    ))
-    with args.vitals_csv.open(newline="") as stream:
-        for row in csv.DictReader(stream):
-            monitor.process_vital_signs(args.patient_id, VitalSignsReading(
-                timestamp=datetime.fromisoformat(row.pop("timestamp")),
-                **{key: float(value) for key, value in row.items()},
-            ))
-    for prescription in demo_prescriptions(args.patient_id):
-        monitor.process_prescription(prescription)
-    monitor.process_video_analysis(args.patient_id, str(args.video or "stub"))
+    if args.video_stub:
+        monitor.video_analyzer = VideoAnalyzerStub()
+    elif args.video_analyzer:
+        try:
+            monitor.video_analyzer = VideoFunctionAdapter.load(args.video_analyzer)
+        except Exception as exc:
+            monitor.record_modality_result(args.patient_id, "video_analysis", {
+                "status": "FALHA", "error": str(exc),
+            })
+    sink = LocalAlertSink(args.alerts)
+    monitor.alert_system.register_callback(sink)
+    process_audio(monitor, args)
+    process_vitals(monitor, args)
+    process_prescriptions(monitor, args)
+    if not args.video_analyzer or monitor.video_analyzer is not None:
+        monitor.process_video_analysis(args.patient_id, str(args.video or "stub"))
+    sink.close()
+    for error in sink.errors:
+        monitor.record_modality_result(args.patient_id, "output", error)
     try:
-        args.alerts.parent.mkdir(parents=True, exist_ok=True)
-        with args.alerts.open("a") as stream:
-            for alert in json.loads(monitor.alert_system.export_alerts_json(args.patient_id)):
-                stream.write(json.dumps(alert, ensure_ascii=False) + "\n")
         args.report.parent.mkdir(parents=True, exist_ok=True)
         args.report.write_text(json.dumps(monitor.generate_patient_report(args.patient_id),
-                                          ensure_ascii=False, indent=2))
-    except OSError as exc:
-        print(f"Erro ao gravar saídas: {exc}", file=sys.stderr)
+                                          ensure_ascii=False, indent=2, allow_nan=False),
+                               encoding="utf-8")
+    except (OSError, ValueError, TypeError) as exc:
+        print(f"Erro ao gravar relatório: {exc}", file=sys.stderr)
         return 1
-    return 0
+    if not any(error.get("output") == "console" for error in sink.errors):
+        print(f"Relatório: {args.report}")
+    return 1 if sink.errors else 0

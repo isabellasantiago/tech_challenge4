@@ -12,7 +12,9 @@ Execute com: python -m anomaly_detection.main
 
 import json
 from datetime import datetime, timedelta
-import random
+from pathlib import Path
+
+import pandas as pd
 
 from .vital_signs_detector import VitalSignsAnomalyDetector, VitalSignsReading
 from .prescription_analyzer import (
@@ -24,34 +26,23 @@ from .alert_system import AlertSystem, AlertSource
 from .patient_monitor import PatientMonitor
 
 
-def simulate_vital_signs_data(patient_id: str, hours: int = 24) -> list[VitalSignsReading]:
-    """Simula dados de sinais vitais de um paciente."""
-    readings = []
-    base_time = datetime.now() - timedelta(hours=hours)
+def load_demo_vital_readings() -> list[VitalSignsReading]:
+    """Carrega a série sintética compartilhada pelos exemplos de sinais vitais."""
+    csv_path = Path(__file__).parent / "data" / "sinais_vitais_demo.csv"
+    readings_df = pd.read_csv(csv_path, parse_dates=["timestamp"])
 
-    for i in range(hours * 4):  # Leitura a cada 15 minutos
-        timestamp = base_time + timedelta(minutes=15 * i)
-
-        # Simula valores com alguma variação e anomalias ocasionais
-        is_anomaly = random.random() < 0.1  # 10% chance de anomalia
-
-        heart_rate = random.gauss(75, 10)
-        if is_anomaly:
-            heart_rate = random.choice([45, 130])  # Valor anômalo
-
-        readings.append(
-            VitalSignsReading(
-                timestamp=timestamp,
-                heart_rate=heart_rate,
-                systolic_bp=random.gauss(120, 15),
-                diastolic_bp=random.gauss(80, 10),
-                spo2=random.gauss(97, 2),
-                temperature=random.gauss(36.5, 0.5),
-                respiratory_rate=random.gauss(16, 3),
-            )
+    return [
+        VitalSignsReading(
+            timestamp=row.timestamp.to_pydatetime(),
+            heart_rate=float(row.heart_rate),
+            systolic_bp=float(row.systolic_bp),
+            diastolic_bp=float(row.diastolic_bp),
+            spo2=float(row.spo2),
+            temperature=float(row.temperature),
+            respiratory_rate=float(row.respiratory_rate),
         )
-
-    return readings
+        for row in readings_df.itertuples(index=False)
+    ]
 
 
 def demo_vital_signs_analysis():
@@ -61,40 +52,10 @@ def demo_vital_signs_analysis():
     print("=" * 60)
 
     detector = VitalSignsAnomalyDetector()
-
-    # Simula algumas leituras
-    readings = [
-        VitalSignsReading(
-            timestamp=datetime.now(),
-            heart_rate=72,
-            systolic_bp=120,
-            diastolic_bp=80,
-            spo2=98,
-            temperature=36.5,
-            respiratory_rate=16,
-        ),
-        VitalSignsReading(
-            timestamp=datetime.now(),
-            heart_rate=45,  # Bradicardia
-            systolic_bp=120,
-            diastolic_bp=80,
-            spo2=98,
-            temperature=36.5,
-            respiratory_rate=16,
-        ),
-        VitalSignsReading(
-            timestamp=datetime.now(),
-            heart_rate=75,
-            systolic_bp=180,  # Hipertensão
-            diastolic_bp=110,  # Hipertensão
-            spo2=88,  # Hipoxemia
-            temperature=38.5,  # Febre
-            respiratory_rate=28,  # Taquipneia
-        ),
-    ]
+    readings = load_demo_vital_readings()
 
     for i, reading in enumerate(readings, 1):
-        print(f"\n--- Leitura {i} ---")
+        print(f"\n--- Leitura {i} | {reading.timestamp.isoformat()} ---")
         results = detector.analyze_reading(reading)
 
         for result in results:
@@ -171,15 +132,7 @@ def demo_patient_monitor():
 
     # Processa sinais vitais
     print("\n--- Processando Sinais Vitais ---")
-    vital_reading = VitalSignsReading(
-        timestamp=datetime.now(),
-        heart_rate=150,  # Taquicardia severa
-        systolic_bp=90,  # Hipotensão
-        diastolic_bp=60,
-        spo2=85,  # Hipoxemia severa
-        temperature=39.5,  # Febre alta
-        respiratory_rate=30,  # Taquipneia
-    )
+    vital_reading = load_demo_vital_readings()[-1]
 
     vital_alerts = monitor.process_vital_signs(patient_id, vital_reading)
     print(f"Alertas de sinais vitais: {len(vital_alerts)}")
