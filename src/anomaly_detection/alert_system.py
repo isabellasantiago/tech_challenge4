@@ -15,6 +15,7 @@ Funcionalidades:
 """
 
 import json
+from uuid import uuid4
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -72,6 +73,16 @@ class MedicalAlert:
     resolution_notes: Optional[str] = None
 
 
+    def to_dict(self) -> dict:
+        return {
+            "id": self.alert_id, "patient_id": self.patient_id,
+            "source": self.source.name, "priority": self.priority.name,
+            "title": self.title, "message": self.message,
+            "timestamp": self.timestamp.isoformat(), "status": self.status.value,
+            "simulated": self.simulated, "details": self.details,
+        }
+
+
 @dataclass
 class PatientAlertSummary:
     """Resumo de alertas de um paciente."""
@@ -100,16 +111,13 @@ class AlertSystem:
     def __init__(self):
         self._alerts: dict[str, MedicalAlert] = {}
         self._patient_alerts: dict[str, list[str]] = {}  # patient_id -> [alert_ids]
-        self._alert_counter = 0
         self._lock = threading.Lock()
         self._alert_queue: queue.PriorityQueue = queue.PriorityQueue()
         self._callbacks: list[Callable[[MedicalAlert], None]] = []
 
     def _generate_alert_id(self) -> str:
         """Gera ID único para o alerta."""
-        with self._lock:
-            self._alert_counter += 1
-            return f"ALT-{datetime.now().strftime('%Y%m%d')}-{self._alert_counter:05d}"
+        return str(uuid4())
 
     def _map_severity_to_priority(self, severity: str) -> AlertPriority:
         """Mapeia severidade de outras fontes para prioridade de alerta."""
@@ -262,6 +270,8 @@ class AlertSystem:
                 "text_risk_level": audio_result.get("text_risk_level"),
                 "identified_symptoms": audio_result.get("identified_symptoms", []),
                 "clinical_recommendation": audio_result.get("clinical_recommendation"),
+                "assessment": audio_result,
+                "model": "stub" if audio_result.get("simulated") else "gpt-4o-mini",
             },
         )
 
@@ -421,22 +431,5 @@ class AlertSystem:
         else:
             alerts = list(self._alerts.values())
 
-        return json.dumps(
-            [
-                {
-                    "alert_id": a.alert_id,
-                    "patient_id": a.patient_id,
-                    "source": a.source.value,
-                    "priority": a.priority.name,
-                    "title": a.title,
-                    "message": a.message,
-                    "status": a.status.value,
-                    "timestamp": a.timestamp.isoformat(),
-                    "details": a.details,
-                    "simulated": a.simulated,
-                }
-                for a in alerts
-            ],
-            indent=2,
-            ensure_ascii=False,
-        )
+        return json.dumps([alert.to_dict() for alert in alerts], indent=2,
+                          ensure_ascii=False, allow_nan=False)
