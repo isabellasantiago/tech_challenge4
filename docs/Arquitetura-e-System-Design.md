@@ -330,10 +330,10 @@ Os quatro passos de implementação da etapa 1 estão entregues em branches enca
 
 | Passo | Branch | Resultado |
 |---|---|---|
-| 1 | `codex/passo-1-execucao-integrada` | CLI, empacotamento, entradas sintéticas e caminhos de saída |
-| 2 | `codex/passo-2-integracao-video` | Contrato único, adaptador, stub, estados e alertas de vídeo |
-| 3 | `codex/passo-3-demais-modalidades` | Áudio real, resposta offline opcional, sinais validados e prescrições |
-| 4 | `codex/passo-4-alertas-relatorio` | UUID, console/JSONL, risco, relatório, falhas e documentação |
+| 1 | `feature/passo-1-execucao-integrada` | CLI, empacotamento, entradas sintéticas e caminhos de saída |
+| 2 | `feature/passo-2-integracao-video` | Contrato único, adaptador, stub, estados e alertas de vídeo |
+| 3 | `feature/passo-3-demais-modalidades` | Áudio real, resposta offline opcional, sinais validados e prescrições |
+| 4 | `feature/passo-4-alertas-relatorio` | UUID, console/JSONL, risco, relatório, falhas e documentação |
 
 Permanecem pendentes o aceite real da etapa 2 e a preparação da apresentação de até 15 minutos com os artefatos reais. A implementação acústica não é eGeMAPS, a detecção de sinais vitais não usa Isolation Forest, as regras de prescrição são limitadas e os dados DAIC-WOZ não validam por si só o cenário de saúde pós-parto.
 
