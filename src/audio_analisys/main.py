@@ -1,6 +1,6 @@
 import json
-from audio_analyzer import AudioAnalyzer
-from clinical_nlp_service import ClinicalNLPService
+from .audio_analyzer import AudioAnalyzer
+from .clinical_nlp_service import ClinicalNLPService
 
 
 def run_pipeline(participant_folder: str):
