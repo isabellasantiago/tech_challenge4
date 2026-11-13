@@ -1,2 +1,6 @@
-def main() -> None:
-    print("Hello from tech-challenge4!")
+"""Pipeline demonstrativa de monitoramento multimodal."""
+
+
+def main():
+    from .cli import main as run
+    return run()

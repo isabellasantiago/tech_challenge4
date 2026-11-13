@@ -16,6 +16,8 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import pandas as pd
+
 # Configura encoding para Windows
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding='utf-8')
@@ -54,6 +56,25 @@ def print_section(title: str):
     time.sleep(0.5)
 
 
+def load_demo_vital_readings() -> list[VitalSignsReading]:
+    """Carrega a série sintética compartilhada pelos exemplos de sinais vitais."""
+    csv_path = Path(__file__).parent / "data" / "sinais_vitais_demo.csv"
+    readings_df = pd.read_csv(csv_path, parse_dates=["timestamp"])
+
+    return [
+        VitalSignsReading(
+            timestamp=row.timestamp.to_pydatetime(),
+            heart_rate=float(row.heart_rate),
+            systolic_bp=float(row.systolic_bp),
+            diastolic_bp=float(row.diastolic_bp),
+            spo2=float(row.spo2),
+            temperature=float(row.temperature),
+            respiratory_rate=float(row.respiratory_rate),
+        )
+        for row in readings_df.itertuples(index=False)
+    ]
+
+
 def demo_sinais_vitais():
     """Demonstracao 1: Deteccao de anomalias em sinais vitais."""
     print_header("DEMONSTRACAO 1: ANALISE DE SINAIS VITAIS")
@@ -65,15 +86,8 @@ def demo_sinais_vitais():
     # Cenario 1: Paciente estavel
     print_section("Cenario 1: Paciente Estavel")
 
-    leitura_normal = VitalSignsReading(
-        timestamp=datetime.now(),
-        heart_rate=72,
-        systolic_bp=120,
-        diastolic_bp=80,
-        spo2=98,
-        temperature=36.5,
-        respiratory_rate=16,
-    )
+    leituras = load_demo_vital_readings()
+    leitura_normal = leituras[0]
 
     print(f"  Frequencia Cardiaca: {leitura_normal.heart_rate} bpm")
     print(f"  Pressao Arterial: {leitura_normal.systolic_bp}/{leitura_normal.diastolic_bp} mmHg")
@@ -96,15 +110,7 @@ def demo_sinais_vitais():
     # Cenario 2: Paciente critico
     print_section("Cenario 2: Paciente em Estado Critico")
 
-    leitura_critica = VitalSignsReading(
-        timestamp=datetime.now(),
-        heart_rate=150,      # Taquicardia severa
-        systolic_bp=180,     # Crise hipertensiva
-        diastolic_bp=110,    # Hipertensao
-        spo2=85,             # Hipoxemia severa
-        temperature=39.5,    # Febre alta
-        respiratory_rate=32, # Taquipneia
-    )
+    leitura_critica = leituras[-1]
 
     print(f"  Frequencia Cardiaca: {leitura_critica.heart_rate} bpm  [!]")
     print(f"  Pressao Arterial: {leitura_critica.systolic_bp}/{leitura_critica.diastolic_bp} mmHg  [!]")
@@ -302,15 +308,7 @@ def demo_monitor_paciente():
     print("\n  [1] Processando sinais vitais...")
     time.sleep(0.5)
 
-    leitura = VitalSignsReading(
-        timestamp=datetime.now(),
-        heart_rate=145,
-        systolic_bp=95,
-        diastolic_bp=65,
-        spo2=89,
-        temperature=38.8,
-        respiratory_rate=26,
-    )
+    leitura = load_demo_vital_readings()[-1]
 
     alertas_vitais = monitor.process_vital_signs(patient_id, leitura)
     print(f"     -> {len(alertas_vitais)} alertas gerados")

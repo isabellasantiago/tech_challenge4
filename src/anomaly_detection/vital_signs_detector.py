@@ -9,11 +9,11 @@ Aplica técnicas de detecção de anomalias em séries temporais de:
 - Frequência respiratória
 
 Referências:
-- Isolation Forest: Liu et al. (2008)
 - Z-Score para detecção de outliers estatísticos
 - Limiares clínicos baseados em literatura médica
 """
 
+import math
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass
@@ -53,6 +53,7 @@ class AnomalyResult:
     expected_range: tuple[float, float]
     z_score: Optional[float] = None
     message: str = ""
+    history_change: Optional[float] = None
 
 
 # Limiares clínicos padrão (literatura médica)
@@ -86,8 +87,8 @@ CLINICAL_THRESHOLDS = {
         "low": 90,
         "normal_low": 95,
         "normal_high": 100,
-        "high": 100,
-        "critical_high": 100,
+        "high": float("inf"),
+        "critical_high": float("inf"),
     },
     "temperature": {
         "critical_low": 34.0,
@@ -108,13 +109,20 @@ CLINICAL_THRESHOLDS = {
 }
 
 
+# Limites de validação demonstrativos; distintos dos limiares de alerta.
+POSSIBLE_RANGES = {
+    "heart_rate": (0, 300), "systolic_bp": (0, 300),
+    "diastolic_bp": (0, 200), "spo2": (0, 100),
+    "temperature": (25, 45), "respiratory_rate": (0, 100),
+}
+
+
 class VitalSignsAnomalyDetector:
     """
     Detector de anomalias em sinais vitais usando múltiplas técnicas:
     1. Limiares clínicos estáticos
     2. Z-Score para detecção estatística
-    3. Isolation Forest para padrões complexos
-    4. Detecção de tendências (variação brusca)
+    A variação recente é registrada como evidência, sem gerar alerta isoladamente.
     """
 
     def __init__(
@@ -131,6 +139,7 @@ class VitalSignsAnomalyDetector:
             trend_window: Janela de amostras para análise de tendência
             trend_threshold: Variação percentual para alerta de tendência
         """
+        self.last_data_errors = []
         self.z_score_threshold = z_score_threshold
         self.trend_window = trend_window
         self.trend_threshold = trend_threshold
@@ -162,8 +171,8 @@ class VitalSignsAnomalyDetector:
         mean = np.mean(history)
         std = np.std(history)
         if std == 0:
-            return 0.0
-        return (value - mean) / std
+            return None
+        return float((value - mean) / std)
 
     def _detect_trend_anomaly(
         self, metric_name: str, current_value: float
@@ -243,6 +252,7 @@ class VitalSignsAnomalyDetector:
             Lista de anomalias detectadas
         """
         results = []
+        self.last_data_errors = []
 
         metrics = {
             "heart_rate": reading.heart_rate,
@@ -254,7 +264,16 @@ class VitalSignsAnomalyDetector:
         }
 
         for metric_name, value in metrics.items():
-            if value is None:
+            minimum, maximum = POSSIBLE_RANGES[metric_name]
+            try:
+                if value is None or isinstance(value, bool):
+                    raise ValueError("valor ausente ou inválido")
+                value = float(value)
+                if not math.isfinite(value) or not minimum <= value <= maximum:
+                    raise ValueError(f"fora da faixa possível {minimum}–{maximum}")
+            except (TypeError, ValueError) as exc:
+                self.last_data_errors.append({"metric": metric_name, "value": str(value),
+                                              "error": str(exc)})
                 continue
 
             thresholds = CLINICAL_THRESHOLDS[metric_name]
@@ -265,6 +284,10 @@ class VitalSignsAnomalyDetector:
 
             # Detecta tendência
             trend_msg = self._detect_trend_anomaly(metric_name, value)
+
+            history = self.history[metric_name]
+            history_change = (value - history[-1] if len(history) >= 3
+                              and np.std(history) == 0 else None)
 
             # Atualiza histórico
             self.history[metric_name].append(value)
@@ -293,6 +316,7 @@ class VitalSignsAnomalyDetector:
                     expected_range=(thresholds["normal_low"], thresholds["normal_high"]),
                     z_score=z_score,
                     message=message,
+                    history_change=history_change,
                 )
             )
 

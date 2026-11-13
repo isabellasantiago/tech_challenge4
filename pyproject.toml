@@ -8,15 +8,17 @@ dependencies = [
     "librosa>=1.0.0",
     "numpy>=2.0.0",
     "openai>=3.25.0",
-    "openai-whisper>=20250625",
     "pandas>=3.0.6",
     "python-dotenv>=1.2.4",
 ]
 
 [project.scripts]
-tech-challenge4 = "tech_challenge4:main"
+tech-challenge4 = "tech_challenge4.cli:main"
 anomaly-detection = "anomaly_detection.main:main"
 
 [build-system]
 requires = ["uv_build>=0.12.10,<0.13.0"]
 build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = ["tech_challenge4", "audio_analisys", "anomaly_detection"]

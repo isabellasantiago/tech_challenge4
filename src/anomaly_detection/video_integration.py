@@ -1,291 +1,98 @@
-"""
-Interface para Integração com Módulo de Análise de Vídeo.
-
-Este módulo define a interface que deve ser implementada pelo
-módulo de análise de vídeo (requisito 1 do Tech Challenge).
-
-O módulo de vídeo deve:
-1. Processar vídeos clínicos (fisioterapia, cirurgias)
-2. Usar OpenPose para análise postural
-3. Usar YOLOv8 para detecção de objetos
-4. Gerar relatórios de desvios/falhas
-
-INSTRUÇÕES PARA QUEM FOR IMPLEMENTAR O MÓDULO DE VÍDEO:
-=========================================================
-
-1. Crie uma classe que implemente VideoAnalyzerProtocol
-2. Integre com PatientMonitor passando sua classe no construtor
-3. Os métodos obrigatórios estão definidos abaixo
-
-Exemplo de uso após implementação:
-
-```python
-from anomaly_detection import PatientMonitor
-from seu_modulo_video import SeuVideoAnalyzer
-
-video_analyzer = SeuVideoAnalyzer()
-monitor = PatientMonitor(video_analyzer=video_analyzer)
-
-# Agora o monitor processará vídeos automaticamente
-alerts = monitor.process_video_analysis("paciente_123", "video.mp4")
-```
-"""
-
-from abc import ABC, abstractmethod
+"""Contrato interno e adaptador do dicionário independente fornecido pelo Cae."""
 from dataclasses import dataclass
-from datetime import datetime
-from enum import Enum
-from typing import Optional, Any
+from importlib import import_module
+import math
+from typing import Callable, Protocol
+
+SEVERITIES = {"CRITICO", "ALTO", "MEDIO", "BAIXO"}
 
 
-class MovementType(Enum):
-    """Tipos de movimentos detectáveis."""
-    WALKING = "CAMINHADA"
-    SITTING = "SENTADO"
-    LYING = "DEITADO"
-    STANDING = "EM_PE"
-    EXERCISE = "EXERCICIO"
-    FALL = "QUEDA"
-    UNKNOWN = "DESCONHECIDO"
+def nonempty(value):
+    return isinstance(value, str) and bool(value.strip())
 
 
-class PostureQuality(Enum):
-    """Qualidade da postura detectada."""
-    GOOD = "BOA"
-    MODERATE = "MODERADA"
-    POOR = "RUIM"
-    CRITICAL = "CRITICA"
+def number(value, name, minimum=0, maximum=None, integer=False):
+    if (isinstance(value, bool) or not isinstance(value, (int, float))
+            or not math.isfinite(value) or value < minimum
+            or (maximum is not None and value > maximum)
+            or (integer and not isinstance(value, int))):
+        raise ValueError(f"{name} inválido")
 
 
-@dataclass
-class MovementAnomaly:
-    """Representa uma anomalia de movimento detectada."""
-    timestamp: datetime
-    anomaly_type: str
-    confidence: float  # 0.0 a 1.0
-    description: str
-    frame_number: Optional[int] = None
-    body_region: Optional[str] = None  # Ex: "joelho_direito", "coluna"
-    severity: str = "MEDIO"  # BAIXO, MEDIO, ALTO, CRITICO
-
-
-@dataclass
-class PostureAnalysis:
-    """Resultado da análise de postura (OpenPose)."""
-    timestamp: datetime
-    posture_quality: PostureQuality
-    body_angles: dict[str, float]  # Ex: {"joelho_direito": 45.0, "coluna": 10.0}
-    deviations: list[str]  # Ex: ["Inclinação excessiva do tronco"]
-    recommendations: list[str]
-
-
-@dataclass
-class ObjectDetection:
-    """Resultado da detecção de objetos (YOLOv8)."""
-    timestamp: datetime
-    objects_detected: list[dict]  # [{"class": "equipamento", "confidence": 0.95}]
-    critical_areas: list[dict]  # Áreas críticas identificadas
-    warnings: list[str]
-
-
-@dataclass
+@dataclass(frozen=True)
 class VideoAnalysisResult:
-    """Resultado completo da análise de vídeo."""
-    video_path: str
-    duration_seconds: float
-    frames_analyzed: int
-    movement_anomalies: list[MovementAnomaly]
-    posture_analyses: list[PostureAnalysis]
-    object_detections: list[ObjectDetection]
-    overall_assessment: str
-    recommendations: list[str]
-    requires_attention: bool
+    status: str
+    findings: list[dict]
+    summary: str = ""
+    duration_seconds: float | None = None
+    frames_analyzed: int | None = None
+
+    @classmethod
+    def from_dict(cls, data):
+        if not isinstance(data, dict) or data.get("status") not in {
+            "CONCLUIDA", "INCONCLUSIVA", "SIMULADA"
+        }:
+            raise ValueError("status de vídeo inválido")
+        findings = data.get("findings")
+        if not isinstance(findings, list):
+            raise ValueError("findings deve ser uma lista")
+        summary = data.get("summary", "")
+        if not isinstance(summary, str):
+            raise ValueError("summary deve ser texto")
+        if data["status"] == "INCONCLUSIVA" and (not nonempty(summary) or findings):
+            raise ValueError("vídeo inconclusivo exige motivo e findings vazio")
+        for finding in findings:
+            if (not isinstance(finding, dict)
+                    or not nonempty(finding.get("type"))
+                    or not nonempty(finding.get("description"))
+                    or finding.get("severity") not in SEVERITIES):
+                raise ValueError("achado de vídeo inválido: tipo, descrição ou severidade")
+            for name in ("offset_seconds", "frame_number", "confidence"):
+                if name in finding:
+                    number(finding[name], name, maximum=1 if name == "confidence" else None,
+                           integer=name == "frame_number")
+        for name in ("duration_seconds", "frames_analyzed"):
+            if name in data:
+                number(data[name], name, integer=name == "frames_analyzed")
+        # Todas as evidências adicionais devem poder ser preservadas no JSON.
+        import json
+        json.dumps(data, allow_nan=False)
+        return cls(data["status"], findings, summary, data.get("duration_seconds"),
+                   data.get("frames_analyzed"))
 
 
-class VideoAnalyzerInterface(ABC):
-    """
-    Interface abstrata para análise de vídeo.
-
-    IMPLEMENTE ESTA CLASSE para integrar análise de vídeo ao sistema.
-
-    Métodos obrigatórios:
-    - analyze_video: Análise completa de um vídeo
-    - detect_movement_anomalies: Detecção de movimentos anômalos
-    - analyze_posture: Análise postural com OpenPose
-    - detect_objects: Detecção de objetos com YOLOv8
-    """
-
-    @abstractmethod
-    def analyze_video(self, video_path: str) -> VideoAnalysisResult:
-        """
-        Realiza análise completa de um vídeo clínico.
-
-        Args:
-            video_path: Caminho do arquivo de vídeo
-
-        Returns:
-            VideoAnalysisResult com todos os resultados da análise
-
-        Deve incluir:
-        - Análise de movimentos
-        - Análise postural (OpenPose)
-        - Detecção de objetos (YOLOv8)
-        - Avaliação geral e recomendações
-        """
-        pass
-
-    @abstractmethod
-    def detect_movement_anomalies(
-        self,
-        patient_id: str,
-        video_path: str,
-        movement_type: Optional[MovementType] = None,
-    ) -> list[MovementAnomaly]:
-        """
-        Detecta anomalias de movimento em um vídeo.
-
-        Args:
-            patient_id: ID do paciente
-            video_path: Caminho do vídeo
-            movement_type: Tipo de movimento esperado (opcional)
-
-        Returns:
-            Lista de anomalias detectadas
-
-        Exemplos de anomalias:
-        - Queda detectada
-        - Movimento restrito
-        - Padrão de marcha alterado
-        - Tremores
-        """
-        pass
-
-    @abstractmethod
-    def analyze_posture(
-        self, video_path: str, sample_rate: int = 30
-    ) -> list[PostureAnalysis]:
-        """
-        Analisa postura usando OpenPose ou similar.
-
-        Args:
-            video_path: Caminho do vídeo
-            sample_rate: Taxa de amostragem (frames)
-
-        Returns:
-            Lista de análises de postura ao longo do vídeo
-
-        Deve extrair:
-        - Ângulos das articulações
-        - Qualidade da postura
-        - Desvios da postura ideal
-        - Recomendações
-        """
-        pass
-
-    @abstractmethod
-    def detect_objects(
-        self, video_path: str, target_classes: Optional[list[str]] = None
-    ) -> list[ObjectDetection]:
-        """
-        Detecta objetos usando YOLOv8.
-
-        Args:
-            video_path: Caminho do vídeo
-            target_classes: Classes de objetos a detectar (opcional)
-
-        Returns:
-            Lista de detecções de objetos
-
-        Classes relevantes para contexto hospitalar:
-        - Equipamentos médicos
-        - Instrumentos cirúrgicos
-        - EPIs
-        - Áreas de risco
-        """
-        pass
+class VideoAnalyzerProtocol(Protocol):
+    def analyze_video(self, video_path: str) -> VideoAnalysisResult: ...
 
 
-class VideoAnalyzerStub(VideoAnalyzerInterface):
-    """
-    Implementação stub para testes e demonstração.
+class VideoFunctionAdapter:
+    def __init__(self, function: Callable):
+        self.function = function
 
-    NÃO USE EM PRODUÇÃO - apenas para demonstrar a interface.
-    Substitua por implementação real com OpenPose e YOLOv8.
-    """
+    @classmethod
+    def load(cls, reference: str):
+        module, separator, name = reference.partition(":")
+        if not separator or not module or not name:
+            raise ValueError("analisador deve ser modulo:funcao")
+        function = getattr(import_module(module), name)
+        if not callable(function):
+            raise ValueError("analisador de vídeo não é uma função")
+        return cls(function)
 
     def analyze_video(self, video_path: str) -> VideoAnalysisResult:
-        """Retorna resultado de demonstração."""
-        return VideoAnalysisResult(
-            video_path=video_path,
-            duration_seconds=0.0,
-            frames_analyzed=0,
-            movement_anomalies=[],
-            posture_analyses=[],
-            object_detections=[],
-            overall_assessment="[STUB] Módulo de vídeo não implementado",
-            recommendations=["Implementar VideoAnalyzerInterface com OpenPose e YOLOv8"],
-            requires_attention=False,
-        )
-
-    def detect_movement_anomalies(
-        self,
-        patient_id: str,
-        video_path: str,
-        movement_type: Optional[MovementType] = None,
-    ) -> list[MovementAnomaly]:
-        """Retorna lista vazia (stub)."""
-        return []
-
-    def analyze_posture(
-        self, video_path: str, sample_rate: int = 30
-    ) -> list[PostureAnalysis]:
-        """Retorna lista vazia (stub)."""
-        return []
-
-    def detect_objects(
-        self, video_path: str, target_classes: Optional[list[str]] = None
-    ) -> list[ObjectDetection]:
-        """Retorna lista vazia (stub)."""
-        return []
+        return VideoAnalysisResult.from_dict(self.function(video_path))
 
 
-# Exemplo de como seria uma implementação real (pseudo-código comentado)
-"""
-class RealVideoAnalyzer(VideoAnalyzerInterface):
-    '''Implementação real com OpenPose e YOLOv8.'''
-
-    def __init__(self):
-        # Carregar modelos
-        # self.openpose = load_openpose_model()
-        # self.yolo = YOLO('yolov8n.pt')
-        pass
-
+class VideoAnalyzerStub:
     def analyze_video(self, video_path: str) -> VideoAnalysisResult:
-        import cv2
+        return VideoAnalysisResult.from_dict({
+            "status": "SIMULADA",
+            "summary": "Exemplo simulado; nenhum vídeo foi analisado.",
+            "findings": [{"type": "DESVIO_POSTURAL", "severity": "MEDIO",
+                          "description": "Exemplo simulado de inclinação do tronco.",
+                          "offset_seconds": 12.5, "rule": "stub demonstrativo"}],
+        })
 
-        cap = cv2.VideoCapture(video_path)
-        # ... processar frames
-        # ... detectar poses com OpenPose
-        # ... detectar objetos com YOLOv8
-        # ... consolidar resultados
 
-        return VideoAnalysisResult(...)
-
-    def detect_movement_anomalies(self, patient_id, video_path, movement_type):
-        # Usar OpenPose para rastrear keypoints
-        # Calcular velocidades e acelerações
-        # Detectar padrões anômalos
-        pass
-
-    def analyze_posture(self, video_path, sample_rate):
-        # Extrair keypoints com OpenPose
-        # Calcular ângulos articulares
-        # Comparar com postura ideal
-        pass
-
-    def detect_objects(self, video_path, target_classes):
-        # Usar YOLOv8 para detecção
-        # Filtrar classes relevantes
-        # Identificar áreas críticas
-        pass
-"""
+# Nome legado aponta para o mesmo protocolo, sem contrato paralelo.
+VideoAnalyzerInterface = VideoAnalyzerProtocol
