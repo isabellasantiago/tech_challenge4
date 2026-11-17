@@ -31,18 +31,67 @@ A transcrição e as métricas acústicas são enviadas à OpenAI. O arquivo `.e
 ignorado pelo Git; `.env.example` indica a variável necessária.
 
 ```bash
-export OPENAI_API_KEY='sua-chave'
-uv run tech-challenge4 --patient-id PAC-DEMO-001 \
+uv sync --frozen --extra video
+uv run --extra video tech-challenge4 --patient-id PAC-DEMO-001 \
   --audio-dir src/audio_analisys/data/daicwoz/303_P \
-  --video /caminho/video.mp4 --video-analyzer modulo_cae:analyze_video
+  --video data/MobiPhysioResearch/E09_P32_AL_VFL_GM.mp4 \
+  --video-analyzer anomaly_detection.mobiphysio_video:analyze_video \
+  --report output/e2e-report.json \
+  --alerts output/e2e-alerts.jsonl
 ```
 
-Instale previamente o módulo do Cae e suas dependências no mesmo ambiente
-Python. A função deve seguir o [contrato de vídeo](src/anomaly_detection/INTEGRACAO_VIDEO.md).
-O adaptador já valida os dados e os converte ao tipo interno. Falha ao importar o
+Os seis vídeos da amostra MobiPhysio estão incluídos no repositório.
+Na primeira análise, o modelo de pose é baixado. Confira
+`execution_status: COMPLETA` em `output/e2e-report.json`; os alertas ficam em
+`output/e2e-alerts.jsonl`, que acumula registros entre execuções.
+
+O analisador segue o [contrato de vídeo](src/anomaly_detection/INTEGRACAO_VIDEO.md),
+e o adaptador valida os dados e os converte ao tipo interno. Falha ao importar o
 módulo ou processar o vídeo fica registrada como `FALHA` e não impede as outras
 modalidades. Sem `--video`/`--video-analyzer` e sem `--video-stub`, o estado é
 `NAO_INTEGRADO`. `--video` e `--video-analyzer` devem ser usados juntos.
+
+## Módulo de vídeo MobiPhysio
+
+O analisador em `anomaly_detection.mobiphysio_video:analyze_video` filtra E07,
+E08 e E09 do MobiPhysio (Harvard Dataverse, DOI `10.7910/DVN/XSI0QN`). E07 é
+Hip Joint Flexion, E08 Both Leg Flexion e E09 Back Extension.
+
+Instale a dependência opcional de vídeo:
+
+```bash
+uv sync --frozen --extra video
+```
+
+Os seis vídeos versionados ficam em `data/MobiPhysioResearch`. São dois por
+exercício, com vistas laterais e participantes distintos. MD5, IDs e nomes
+ficam registrados em `sample_manifest.json`. Para baixar a amostra novamente,
+use `uv run --extra video python -m anomaly_detection.mobiphysio_dataset`;
+`MOBIPHYSIO_DATASET_DIR` altera o destino desse download.
+
+O analisador usa MediaPipe PoseLandmarker Lite e uma regra heurística 2D:
+excursão angular ombro-quadril-joelho menor que 15° gera um achado de severidade
+`BAIXO`. A regra é demonstrativa, não foi validada clinicamente e não usa os
+scores EAAQ. São necessários pelo menos três quadros válidos, 60% das amostras e cobertura
+dos três terços do vídeo; em E08, ambos os lados devem ser medidos nos mesmos
+quadros. Cobertura insuficiente resulta em `INCONCLUSIVA`. O modelo
+é baixado na primeira análise e mantido no cache local; detalhes da regra,
+modelo e limitações estão em
+[INTEGRACAO_VIDEO.md](src/anomaly_detection/INTEGRACAO_VIDEO.md).
+Nos seis clipes baixados, E07/E08 concluem sem achados e os dois clipes E09
+produzem baixa excursão heurística (5,62° e 3,31°). O achado resume o vídeo todo;
+os intervalos de quadros e segundos informam a amostragem, não o instante
+de um desvio. Os quadros que contribuem aos percentis são registrados como
+evidência das medições.
+
+Exemplo integrado:
+
+```bash
+uv run --extra video tech-challenge4 --patient-id DEMO \
+  --audio-dir src/audio_analisys/data/daicwoz/303_P --openai-stub \
+  --video data/MobiPhysioResearch/E07_P02_AR_VFL_GM.mp4 \
+  --video-analyzer anomaly_detection.mobiphysio_video:analyze_video
+```
 
 ## Entradas e saídas
 
@@ -120,11 +169,11 @@ o comando offline acima valida a extração acústica com os arquivos do reposit
 alertas reais e simulados distinguíveis e evidências preservadas. Implementada e
 validada com substitutos de contrato.
 
-**Etapa 2:** receber o módulo e o vídeo reais do Cae, suas regras e o instante
-esperado do achado; instalar/configurar e executar com chamada real à OpenAI.
-Aceitar apenas após conferir evidências e obter `COMPLETA`. Essa validação real
-permanece pendente; a configuração não exige novos componentes de integração se
-o contrato for cumprido.
+**Etapa 2:** a execução real sem stubs foi realizada e registrou `COMPLETA`.
+O achado de vídeo implementado resume todo o clipe e não localiza um desvio no tempo.
+A [validação de vídeo](src/anomaly_detection/INTEGRACAO_VIDEO.md) descreve os
+testes com modelo e vídeos reais, uma avaliação independente disponível e suas
+limitações.
 
 Limitações: não há transcrição automática, Azure, streaming, banco, canal externo,
 eGeMAPS ou Isolation Forest. As regras farmacológicas e os limiares são limitados;
