@@ -16,6 +16,11 @@ dependencies = [
 tech-challenge4 = "tech_challenge4.cli:main"
 anomaly-detection = "anomaly_detection.main:main"
 
+[project.optional-dependencies]
+video = [
+    "mediapipe>=1.2.3,<2",
+]
+
 [build-system]
 requires = ["uv_build>=0.12.10,<0.13.0"]
 build-backend = "uv_build"
