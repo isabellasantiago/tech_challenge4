@@ -1,0 +1,52 @@
+{
+  "dataset": "MobiPhysio",
+  "doi": "doi:10.7910/DVN/XSI0QN",
+  "dataset_page": "https://dataverse.harvard.edu/citation?persistentId=doi:10.7910/DVN/XSI0QN",
+  "version": "3.0",
+  "selection": "Dois menores vídeos de vista lateral, de participantes distintos, para cada exercício E07, E08 e E09.",
+  "license": "CC0 1.0",
+  "files": [
+    {
+      "filename": "E07_P17_AR_VML_GM.mp4",
+      "file_id": 11788645,
+      "size_bytes": 11362378,
+      "md5": "ab25ec75a8680c3ee08cde4fe6448ba5",
+      "exercise": "E07"
+    },
+    {
+      "filename": "E07_P02_AR_VFL_GM.mp4",
+      "file_id": 11718300,
+      "size_bytes": 13288100,
+      "md5": "8bc77b39fea2febe2c6b0f56454ec4ad",
+      "exercise": "E07"
+    },
+    {
+      "filename": "E08_P35_AL_VFL_GM.mp4",
+      "file_id": 11789254,
+      "size_bytes": 7779690,
+      "md5": "2a21dac37b3dcc6884658d40feeb0d1f",
+      "exercise": "E08"
+    },
+    {
+      "filename": "E08_P27_AR_VFL_GM.mp4",
+      "file_id": 11789216,
+      "size_bytes": 7942096,
+      "md5": "ab70c30f90d509402ef1206ea40590f3",
+      "exercise": "E08"
+    },
+    {
+      "filename": "E09_P35_AL_VFL_GM.mp4",
+      "file_id": 11798827,
+      "size_bytes": 6451451,
+      "md5": "f33a9c473150231cde191122660c2485",
+      "exercise": "E09"
+    },
+    {
+      "filename": "E09_P32_AL_VFL_GM.mp4",
+      "file_id": 11798844,
+      "size_bytes": 6672349,
+      "md5": "f374838df339c5a3076a460af1772834",
+      "exercise": "E09"
+    }
+  ]
+}

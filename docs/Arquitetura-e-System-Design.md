@@ -10,7 +10,7 @@ O sistema é um protótipo acadêmico para demonstração. Seus resultados são 
 
 ## 2. Estado atual e direção arquitetural
 
-O repositório já contém componentes para análise acústica e textual, detecção de anomalias em sinais vitais, análise simplificada de evolução de prescrições, alertas e monitoramento por paciente. A etapa 1 conecta esses componentes pelo comando `tech-challenge4`, com validação offline reproduzível. O aceite real da etapa 2 permanece pendente.
+O repositório já contém componentes para análise acústica e textual, detecção de anomalias em sinais vitais, análise simplificada de evolução de prescrições, alertas e monitoramento por paciente. A etapa 1 conecta esses componentes pelo comando `tech-challenge4`, com validação offline reproduzível. A execução real da etapa 2 registrou `COMPLETA`. A regra de vídeo resume o clipe inteiro e não localiza eventos no tempo.
 
 O desenho-alvo mantém cada modalidade em um analisador especializado. O `PatientMonitor` atua como orquestrador e encaminha resultados normalizados ao `AlertSystem`, que mantém os alertas durante a execução e permite exportar um relatório JSON. A consolidação reúne evidências por paciente e usa a maior prioridade entre alertas reais; alertas simulados não entram no risco. Sem alertas reais e com avaliação incompleta, o risco é `INDETERMINADO`. O sistema não produz uma nova avaliação clínica conjunta entre modalidades.
 
@@ -21,7 +21,7 @@ O desenho-alvo mantém cada modalidade em um analisador especializado. O `Patien
 | Prescrições | `src/anomaly_detection/prescription_analyzer.py`: comparação de prescrições, regras de interação e limites simplificados de dose. | Tratar como regras demonstrativas e explicitar a cobertura limitada. |
 | Monitor | `src/anomaly_detection/patient_monitor.py`: consolida entradas, histórico e relatório. | Tornar o ponto único de integração dos resultados de modalidade. |
 | Alertas | `src/anomaly_detection/alert_system.py`: priorização, callbacks e histórico em memória. | Exibir no console e registrar em JSONL local; notificação externa fica fora do protótipo. |
-| Vídeo | `video_integration.py` define protocolo único, adaptador validado e stub; o monitor registra resultados e gera alertas. | O analisador de vídeo é uma dependência a receber da frente de vídeo. A integração está preparada e validada com substitutos; falta validar o módulo real. |
+| Vídeo | `src/anomaly_detection/mobiphysio_video.py` expõe o analisador MobiPhysio; `mobiphysio_dataset.py` filtra e baixa uma amostra E07/E08/E09. O adaptador, monitor, alertas e relatório integram o resultado. | Manter o analisador desacoplado e documentar a heurística e suas limitações. A execução real com OpenAI foi concluída; o resultado do vídeo descreve o clipe inteiro. |
 
 ## 3. Diagrama visual da arquitetura
 
@@ -30,7 +30,7 @@ flowchart LR
     subgraph Inputs[Entradas e situação no repositório]
         WAV[Áudio WAV<br/>incluído: DAIC-WOZ]
         TXT[Transcrição CSV<br/>incluída: DAIC-WOZ]
-        VID[Vídeo clínico<br/>arquivo não incluído]
+        VID[Vídeos MobiPhysio<br/>amostra local E07-E09]
         CSV[CSV de sinais vitais<br/>incluído: amostra sintética]
         RX[Prescrições estruturadas<br/>objetos simulados no código]
     end
@@ -69,7 +69,7 @@ flowchart LR
     ALT --> OUT
 ```
 
-**Estado das entradas:** existem seis arquivos WAV e seis transcrições CSV do DAIC-WOZ para os participantes 303, 304, 306, 307, 320 e 321. Há também uma amostra sintética de sinais vitais em `src/anomaly_detection/data/sinais_vitais_demo.csv`, consumida pela demonstração de detecção. Não encontrei arquivos de vídeo clínico nem arquivos de prescrições. As duas prescrições fixas são criadas em `src/tech_challenge4/demo_inputs.py`. O adaptador, o caminho de vídeo até alertas e o registro JSONL estão implementados. A análise com o módulo e o vídeo reais do Cae permanece pendente.
+**Estado das entradas:** existem seis arquivos WAV e seis transcrições CSV do DAIC-WOZ para os participantes 303, 304, 306, 307, 320 e 321. Há também uma amostra sintética de sinais vitais em `src/anomaly_detection/data/sinais_vitais_demo.csv` e seis vídeos MobiPhysio versionados (dois por exercício E07, E08 e E09). As duas prescrições fixas são criadas em `src/tech_challenge4/demo_inputs.py`. O analisador real e o caminho de vídeo até alertas estão implementados; a execução real com OpenAI foi concluída; a regra de vídeo avalia o clipe inteiro.
 
 ## 4. Componentes e responsabilidades
 
@@ -87,17 +87,19 @@ A demonstração usará áudio e transcrição pareada fornecidos pelo dataset. 
 
 ### 4.3 Análise de vídeo
 
-O analisador de vídeo recebe um caminho de vídeo e retorna um estado e uma lista estruturada de achados. Duração, quadros, medições posturais e outros detalhes são opcionais quando disponíveis.
+O analisador implementado em `src/anomaly_detection/mobiphysio_video.py` recebe um caminho de vídeo e expõe `anomaly_detection.mobiphysio_video:analyze_video`. Ele aceita os exercícios E07, E08 e E09 do MobiPhysio, identificados no nome do arquivo ou em um diretório pai. O módulo MediaPipe PoseLandmarker Lite amostra cerca de três quadros por segundo e mede o ângulo 2D ombro-quadril-joelho. A excursão entre os percentis aproximados 10 e 90 abaixo de 15° produz o achado heurístico `BAIXA_EXCURSAO_ANGULAR_HEURISTICA`, severidade `BAIXO`. A medição usa coordenadas em pixels e exige ao menos três quadros válidos, 60% das amostras e cobertura dos três terços do vídeo. Para E08, ambos os lados precisam ser medidos nos mesmos quadros. Esses critérios são heurísticos e não garantem um ciclo completo.
+
+Essa regra é demonstrativa, não foi validada clinicamente e não usa os scores EAAQ. Os achados resumem o clipe inteiro e não recebem `offset_seconds`, pois o dataset não fornece anotação temporal de desvios. Duração, quadros, ângulos e outras evidências são incluídos quando disponíveis. Arquivos inválidos, erros do modelo e decodificação incompleta (mais de um quadro abaixo da contagem reportada) são sinalizados como falha; ausência de pessoa ou de marcos suficientes resulta em `INCONCLUSIVA`.
 
 ### Decisão: analisador desacoplado com contrato compartilhado
 
-A implementação do analisador de vídeo será um módulo independente, desenvolvido pela frente de vídeo. Ele não deve importar nem depender de `PatientMonitor` ou `AlertSystem`; sua responsabilidade termina ao analisar o vídeo e devolver um resultado estruturado. O monitor recebe a implementação por injeção de dependência e converte seus achados em registros e alertas.
+O analisador é um módulo independente e não importa nem depende de `PatientMonitor` ou `AlertSystem`; sua responsabilidade termina ao analisar o vídeo e devolver um resultado estruturado. A CLI carrega a função por `--video-analyzer anomaly_detection.mobiphysio_video:analyze_video`; o monitor recebe a implementação por injeção de dependência e converte seus achados em registros e alertas.
 
 O módulo do Cae deve expor `analyze_video(video_path)` e devolver exatamente um dicionário Python no formato descrito na seção 5. O responsável pela integração fornecerá um adaptador que valida esse dicionário e o converte para o tipo interno usado pelo `PatientMonitor`. O protocolo único `VideoAnalyzerProtocol` e o tipo `VideoAnalysisResult` estão definidos em `video_integration.py`. A implementação do Cae deve seguir a interface acordada.
 
 Os achados devem conter tipo, descrição e severidade, além de evidências disponíveis. Uma execução concluída sem anomalias deve ser distinguível de uma falha de processamento; falhas nunca devem ser apresentadas como uma lista vazia de anomalias.
 
-Enquanto a implementação do Cae não estiver disponível, um stub conforme ao mesmo contrato permitirá desenvolver e demonstrar o restante do sistema. O stub pode gerar alertas para demonstrar a integração; seus resultados e alertas devem estar identificados como simulados em todas as saídas.
+O `VideoAnalyzerStub` permanece disponível para testes e demonstrações sem vídeo real. Seus resultados e alertas devem estar identificados como simulados em todas as saídas.
 
 ### 4.4 Sinais vitais
 
@@ -132,7 +134,7 @@ Persistência em banco de dados, integração com prontuário, fila e canal exte
 
 ## 5. Fluxo de integração de vídeo
 
-O fluxo-alvo abaixo separa as responsabilidades: a frente de vídeo fornece um analisador executável e seus resultados; o responsável por este system design conecta esse analisador ao `PatientMonitor`, converte achados em alertas e inclui os resultados no relatório.
+O fluxo separa as responsabilidades: a CLI carrega o analisador executável; o adaptador valida seu resultado; e o `PatientMonitor` registra a análise, converte achados em alertas e inclui os resultados no relatório.
 
 ```mermaid
 sequenceDiagram
@@ -208,9 +210,9 @@ Exemplo ilustrativo do resultado serializado:
 }
 ```
 
-Nesse exemplo, o monitor associa o achado ao paciente da chamada e cria um alerta `P3_MEDIUM`. O código usa um único `VideoAnalysisResult` e um único protocolo compartilhado, conforme o contrato acima. Até a entrega do módulo real, o stub permite demonstrar o caminho completo com a identificação `SIMULADA`.
+Nesse exemplo ilustrativo, o monitor associa o achado ao paciente da chamada e cria um alerta `P3_MEDIUM`. O código usa um único `VideoAnalysisResult` e um único protocolo compartilhado, conforme o contrato acima. O analisador MobiPhysio produz resultados reais; o stub continua restrito às demonstrações simuladas.
 
-Para a demonstração final, a frente de vídeo deve fornecer um vídeo de exemplo, o movimento e a regra avaliados e o instante esperado do desvio. Um exemplo sem desvio pode complementar a demonstração. Áudio, vídeo e dados sintéticos serão associados a um identificador fictício; isso não significa que pertençam ao mesmo paciente real.
+Para a demonstração final, já há vídeos de exemplo e uma regra documentada que avalia o clipe inteiro. Uma referência independente pode apoiar a validação, mas não é exigida para localizar temporalmente um achado global. Um exemplo sem desvio pode complementar a demonstração. Áudio, vídeo e dados sintéticos são associados a um identificador fictício; isso não significa que pertençam ao mesmo paciente real.
 
 ## 6. Dados e formato do relatório
 
@@ -302,7 +304,7 @@ O comando retorna código zero quando termina o processamento e grava as saídas
 
 ## 8. Configuração e operação
 
-Requer Python 3.14+ e `uv`. Instalar com `uv sync --frozen`.
+Requer Python 3.14+ e `uv`. Para o fluxo de vídeo real, instalar com `uv sync --frozen --extra video`; as dependências incluem MediaPipe e o modelo PoseLandmarker Lite é baixado e verificado na primeira análise.
 
 ```bash
 uv run tech-challenge4 --patient-id PAC-DEMO-001 \
@@ -312,7 +314,7 @@ uv run tech-challenge4 --patient-id PAC-DEMO-001 \
 
 Esse comando faz extração acústica real e usa a transcrição DAIC-WOZ. Apenas a resposta OpenAI e o resultado do vídeo são simulados. O resultado esperado é `PARCIAL`, com alertas simulados excluídos do risco e risco real `CRITICO` pela leitura sintética de pressão sistólica de 180 mmHg.
 
-Para OpenAI real, configurar `OPENAI_API_KEY` no ambiente ou `.env` e omitir `--openai-stub`. O modelo usado é `gpt-4o-mini`. Para vídeo real, instalar o módulo e suas dependências e usar `--video /caminho/video.mp4 --video-analyzer modulo_cae:analyze_video`. Sem vídeo/analisador, registrar `NAO_INTEGRADO`. Não há dependência Azure.
+Para OpenAI real, configurar `OPENAI_API_KEY` no ambiente ou `.env` e omitir `--openai-stub`. O modelo usado é `gpt-4o-mini`. Para vídeo real, usar um arquivo com o código de exercício no nome, por exemplo `uv run --extra video tech-challenge4 --patient-id DEMO --audio-dir src/audio_analisys/data/daicwoz/303_P --openai-stub --video data/MobiPhysioResearch/E09_P32_AL_VFL_GM.mp4 --video-analyzer anomaly_detection.mobiphysio_video:analyze_video`. Sem vídeo/analisador, registrar `NAO_INTEGRADO`. Não há dependência Azure.
 
 Entradas padrão: CSV sintético distribuído em `anomaly_detection/data/sinais_vitais_demo.csv` e duas prescrições fixas cronológicas em `tech_challenge4/demo_inputs.py`. `--vitals-csv PATH` permite sobrescrever o CSV. Saídas: `output/report.json` (substituição) e `output/alerts.jsonl` (acréscimo), configuráveis com `--report PATH` e `--alerts PATH`. Os caminhos devem ser distintos. Horários de emissão usam o relógio local do processo; sinais e prescrições preservam os timestamps de entrada.
 
@@ -335,9 +337,9 @@ Os quatro passos de implementação da etapa 1 estão entregues em branches enca
 | 3 | `feature/passo-3-demais-modalidades` | Áudio real, resposta offline opcional, sinais validados e prescrições |
 | 4 | `feature/passo-4-alertas-relatorio` | UUID, console/JSONL, risco, relatório, falhas e documentação |
 
-Permanecem pendentes o aceite real da etapa 2 e a preparação da apresentação de até 15 minutos com os artefatos reais. A implementação acústica não é eGeMAPS, a detecção de sinais vitais não usa Isolation Forest, as regras de prescrição são limitadas e os dados DAIC-WOZ não validam por si só o cenário de saúde pós-parto.
+Permanece pendente a preparação da apresentação de até 15 minutos com os artefatos reais. A implementação acústica não é eGeMAPS, a detecção de sinais vitais não usa Isolation Forest, as regras de prescrição são limitadas e os dados DAIC-WOZ não validam por si só o cenário de saúde pós-parto.
 
-Para a etapa 2, receber do Cae a implementação que segue o contrato, suas regras de detecção e um vídeo de exemplo com resultado esperado; instalar o módulo e suas dependências, configurar sua função no comando e validar a execução real.
+O módulo de vídeo e sua regra demonstrativa já estão implementados e configurados. A execução sem stubs registrou `COMPLETA`. A regra atual resume o clipe inteiro e não estima o início de um evento.
 
 ## 10. Critério de conclusão da integração
 

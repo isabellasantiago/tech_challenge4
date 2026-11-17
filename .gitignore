@@ -4,3 +4,10 @@ __pycache__
 __pycache__/
 output/
 dist/
+/data/MobiPhysioResearch/*.mp4
+!/data/MobiPhysioResearch/E07_P02_AR_VFL_GM.mp4
+!/data/MobiPhysioResearch/E07_P17_AR_VML_GM.mp4
+!/data/MobiPhysioResearch/E08_P27_AR_VFL_GM.mp4
+!/data/MobiPhysioResearch/E08_P35_AL_VFL_GM.mp4
+!/data/MobiPhysioResearch/E09_P32_AL_VFL_GM.mp4
+!/data/MobiPhysioResearch/E09_P35_AL_VFL_GM.mp4
